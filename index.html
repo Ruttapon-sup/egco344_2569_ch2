@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Electricity Dashboard</title>
+  <title>Electricity Usage Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- Chart.js -->
@@ -40,13 +40,14 @@
     <!-- Chart -->
     <canvas id="usageChart"></canvas>
 
-    <!-- Users Table -->
+    <!-- Province Table -->
     <table>
       <thead>
         <tr>
-          <th>User</th>
-          <th>Type</th>
-          <th>Region</th>
+          <th>Province</th>
+          <th>Usage (kWh)</th>
+          <th>Number of People</th>
+          <th>Usage / Person (kWh)</th>
         </tr>
       </thead>
       <tbody id="usersTable"></tbody>
@@ -62,32 +63,49 @@ async function loadData() {
   const usageJson = await usageRes.json();
   const usersJson = await usersRes.json();
 
-  // Your usage file is wrapped in "Sheet1"
+  // Usage file is wrapped in "Sheet1"
   const usages = usageJson.Sheet1;
   const users = usersJson;
 
-  // ===== TOTAL CONSUMPTION =====
-  let totalKwh = 0;
-  usages.forEach(p => {
-    Object.keys(p).forEach(key => {
-      if (key.endsWith('_kwh')) {
-        totalKwh += Number(p[key] || 0);
-      }
-    });
-  });
-
-  // ===== TOTAL USERS =====
-  let totalUsers = 0;
+  // ===== USERS PER PROVINCE =====
+  const userMap = {};
   users.forEach(p => {
-    Object.keys(p).forEach(key => {
-      if (key.endsWith('_count')) {
-        totalUsers += Number(p[key] || 0);
+    let total = 0;
+    Object.keys(p).forEach(k => {
+      if (k.endsWith('_count')) {
+        total += Number(p[k] || 0);
       }
     });
+    userMap[p.province_name] = total;
   });
 
-  const avgKwh = totalUsers ? (totalKwh / totalUsers).toFixed(2) : 0;
+  // ===== PROVINCE METRICS =====
+  const provinces = [];
+  let totalKwh = 0;
+  let totalUsers = 0;
 
+  usages.forEach(p => {
+    let provinceKwh = 0;
+    Object.keys(p).forEach(k => {
+      if (k.endsWith('_kwh')) {
+        provinceKwh += Number(p[k] || 0);
+      }
+    });
+
+    const provinceUsers = userMap[p.province_name] || 0;
+
+    provinces.push({
+      name: p.province_name,
+      kwh: provinceKwh,
+      users: provinceUsers,
+      perPerson: provinceUsers ? provinceKwh / provinceUsers : 0
+    });
+
+    totalKwh += provinceKwh;
+    totalUsers += provinceUsers;
+  });
+
+  // ===== SUMMARY =====
   document.getElementById('totalUsers').textContent =
     totalUsers.toLocaleString();
 
@@ -95,47 +113,44 @@ async function loadData() {
     totalKwh.toLocaleString();
 
   document.getElementById('avgKwh').textContent =
-    avgKwh;
+    totalUsers ? (totalKwh / totalUsers).toFixed(2) : 0;
 
-  // ===== TABLE (Province summary) =====
+  // ===== TABLE =====
   const table = document.getElementById('usersTable');
   table.innerHTML = '';
 
-  users.slice(0, 10).forEach(p => {
-    const provinceTotalUsers = Object.keys(p)
-      .filter(k => k.endsWith('_count'))
-      .reduce((sum, k) => sum + Number(p[k] || 0), 0);
-
+  provinces.forEach(p => {
     table.innerHTML += `
       <tr>
-        <td>${p.province_name}</td>
-        <td>Total Users</td>
-        <td>${provinceTotalUsers.toLocaleString()}</td>
+        <td>${p.name}</td>
+        <td>${p.kwh.toLocaleString()}</td>
+        <td>${p.users.toLocaleString()}</td>
+        <td>${p.perPerson.toFixed(2)}</td>
       </tr>
     `;
   });
 
-  // ===== CHART (kWh by Province) =====
-  const labels = usages.map(p => p.province_name);
-  const data = usages.map(p =>
-    Object.keys(p)
-      .filter(k => k.endsWith('_kwh'))
-      .reduce((sum, k) => sum + Number(p[k] || 0), 0)
-  );
-
+  // ===== BAR CHART =====
   new Chart(document.getElementById('usageChart'), {
     type: 'bar',
     data: {
-      labels,
+      labels: provinces.map(p => p.name),
       datasets: [{
-        label: 'Total kWh',
-        data
+        label: 'Electricity Usage (kWh)',
+        data: provinces.map(p => p.kwh)
       }]
     },
     options: {
       responsive: true,
       plugins: {
         legend: { display: false }
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: value => value.toLocaleString()
+          }
+        }
       }
     }
   });
