@@ -14,167 +14,210 @@
 
 <body>
 
-<header>
-  <h1>⚡ Electricity Usage Dashboard</h1>
+<header class="top-bar">
+  <div>
+    <h1>Electricity Usage Dashboard</h1>
+    <p>Provincial distribution and sector breakdown analysis</p>
+  </div>
+  <select>
+    <option>2566</option>
+  </select>
 </header>
 
 <div class="container">
 
-  <!-- Summary Cards -->
+  <!-- KPI CARDS -->
   <div class="cards">
-    <div class="card">
-      <h3>Total Users</h3>
-      <p id="totalUsers">–</p>
+    <div class="card blue">
+      <span>Total Consumption</span>
+      <strong id="totalKwh">–</strong>
+      <small>kWh</small>
     </div>
-    <div class="card">
-      <h3>Total Consumption (kWh)</h3>
-      <p id="totalKwh">–</p>
+    <div class="card purple">
+      <span>Total Active Users</span>
+      <strong id="totalUsers">–</strong>
     </div>
-    <div class="card">
-      <h3>Average per User (kWh)</h3>
-      <p id="avgKwh">–</p>
+    <div class="card green">
+      <span>Avg Usage per Province</span>
+      <strong id="avgProvince">–</strong>
+      <small>kWh</small>
+    </div>
+    <div class="card orange">
+      <span>Top Province</span>
+      <strong id="topProvince">–</strong>
     </div>
   </div>
 
-  <div class="grid">
-    <!-- Scrollable Chart -->
-    <div class="chart-wrapper">
-      <canvas id="usageChart"></canvas>
+  <!-- CHARTS -->
+  <div class="grid-2">
+    <!-- BAR CHART -->
+    <div class="panel">
+      <h3>Electricity Usage by Province (Top 15)</h3>
+      <div class="chart-wrapper bar-chart">
+        <canvas id="barChart"></canvas>
+      </div>
     </div>
 
-    <!-- Province Table -->
+    <!-- DONUT CHART -->
+    <div class="panel">
+      <h3>Usage Sector Breakdown</h3>
+      <div class="donut-wrapper">
+        <canvas id="donutChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="panel">
+    <div class="table-header">
+      <h3>Provincial Data Breakdown</h3>
+      <input type="text" id="search" placeholder="Search province...">
+    </div>
+
     <table>
       <thead>
         <tr>
           <th>Province</th>
-          <th>Usage (kWh)</th>
-          <th>Number of People</th>
-          <th>Usage / Person (kWh)</th>
+          <th>Total Users</th>
+          <th>Consumption (kWh)</th>
+          <th>Usage per User</th>
         </tr>
       </thead>
-      <tbody id="usersTable"></tbody>
+      <tbody id="tableBody"></tbody>
     </table>
   </div>
+
 </div>
 
 <script>
-async function loadData() {
-  const usageRes = await fetch('electricity_usages_en.json');
-  const usersRes = await fetch('electricity_users_en.json');
+async function loadDashboard() {
+  const usageJson = await (await fetch('electricity_usages_en.json')).json();
+  const userJson = await (await fetch('electricity_users_en.json')).json();
 
-  const usageJson = await usageRes.json();
-  const usersJson = await usersRes.json();
-
-  // Usage file is wrapped in "Sheet1"
   const usages = usageJson.Sheet1;
-  const users = usersJson;
+  const users = userJson;
 
-  // ===== USERS PER PROVINCE =====
+  // USERS MAP
   const userMap = {};
   users.forEach(p => {
-    let total = 0;
-    Object.keys(p).forEach(k => {
-      if (k.endsWith('_count')) {
-        total += Number(p[k] || 0);
-      }
-    });
-    userMap[p.province_name] = total;
+    userMap[p.province_name] = Object.keys(p)
+      .filter(k => k.endsWith('_count'))
+      .reduce((s, k) => s + Number(p[k] || 0), 0);
   });
 
-  // ===== PROVINCE METRICS =====
-  const provinces = [];
-  let totalKwh = 0;
-  let totalUsers = 0;
+  // PROVINCE METRICS
+  const provinces = usages.map(p => {
+    const kwh = Object.keys(p)
+      .filter(k => k.endsWith('_kwh'))
+      .reduce((s, k) => s + Number(p[k] || 0), 0);
 
-  usages.forEach(p => {
-    let provinceKwh = 0;
-    Object.keys(p).forEach(k => {
-      if (k.endsWith('_kwh')) {
-        provinceKwh += Number(p[k] || 0);
-      }
-    });
+    const people = userMap[p.province_name] || 0;
 
-    const provinceUsers = userMap[p.province_name] || 0;
-
-    provinces.push({
+    return {
       name: p.province_name,
-      kwh: provinceKwh,
-      users: provinceUsers,
-      perPerson: provinceUsers ? provinceKwh / provinceUsers : 0
-    });
-
-    totalKwh += provinceKwh;
-    totalUsers += provinceUsers;
+      kwh,
+      users: people,
+      perUser: people ? kwh / people : 0,
+      sectors: p
+    };
   });
 
-  // ===== SUMMARY =====
-  document.getElementById('totalUsers').textContent =
-    totalUsers.toLocaleString();
+  provinces.sort((a, b) => b.kwh - a.kwh);
 
-  document.getElementById('totalKwh').textContent =
-    totalKwh.toLocaleString();
+  // KPI
+  const totalKwh = provinces.reduce((s, p) => s + p.kwh, 0);
+  const totalUsers = provinces.reduce((s, p) => s + p.users, 0);
 
-  document.getElementById('avgKwh').textContent =
-    totalUsers ? (totalKwh / totalUsers).toFixed(2) : 0;
+  document.getElementById('totalKwh').textContent = totalKwh.toLocaleString();
+  document.getElementById('totalUsers').textContent = totalUsers.toLocaleString();
+  document.getElementById('avgProvince').textContent =
+    (totalKwh / provinces.length).toFixed(0);
+  document.getElementById('topProvince').textContent = provinces[0].name;
 
-  // ===== TABLE =====
-  const table = document.getElementById('usersTable');
-  table.innerHTML = '';
+  // BAR CHART (Top 15)
+  const top15 = provinces.slice(0, 15);
+  const barCanvas = document.getElementById('barChart');
 
-  provinces.forEach(p => {
-    table.innerHTML += `
-      <tr>
-        <td>${p.name}</td>
-        <td>${p.kwh.toLocaleString()}</td>
-        <td>${p.users.toLocaleString()}</td>
-        <td>${p.perPerson.toFixed(2)}</td>
-      </tr>
-    `;
-  });
-
-  // ===== BAR CHART (SCROLLABLE, BIG BARS) =====
-  const canvas = document.getElementById('usageChart');
-
-  // Make chart wide based on number of provinces
-  canvas.width = provinces.length * 90;
-  canvas.height = 420;
-
-  new Chart(canvas, {
+  new Chart(barCanvas, {
     type: 'bar',
     data: {
-      labels: provinces.map(p => p.name),
+      labels: top15.map(p => p.name),
       datasets: [{
-        label: 'Electricity Usage (kWh)',
-        data: provinces.map(p => p.kwh),
-        barThickness: 45,
-        maxBarThickness: 55
+        data: top15.map(p => p.kwh),
+        backgroundColor: '#3b82f6',
+        barThickness: 34,
+        maxBarThickness: 40
       }]
     },
     options: {
-      responsive: false,
+      responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
+      plugins: { legend: { display: false } },
       scales: {
         x: {
           ticks: {
             autoSkip: false,
-            maxRotation: 60,
-            minRotation: 60
+            maxRotation: 45,
+            minRotation: 45
           }
         },
         y: {
           ticks: {
-            callback: value => value.toLocaleString()
+            callback: v => v.toLocaleString()
           }
         }
       }
     }
   });
+
+  // DONUT CHART
+  const sectorTotals = {};
+  provinces.forEach(p => {
+    Object.keys(p.sectors).forEach(k => {
+      if (k.endsWith('_kwh')) {
+        sectorTotals[k] = (sectorTotals[k] || 0) + Number(p.sectors[k]);
+      }
+    });
+  });
+
+  new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(sectorTotals).map(k => k.replace('_kwh', '')),
+      datasets: [{ data: Object.values(sectorTotals) }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+
+  // TABLE
+  const tbody = document.getElementById('tableBody');
+  provinces.forEach(p => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${p.name}</td>
+        <td>${p.users.toLocaleString()}</td>
+        <td>${p.kwh.toLocaleString()}</td>
+        <td class="blue">${p.perUser.toFixed(2)}</td>
+      </tr>
+    `;
+  });
+
+  // SEARCH
+  document.getElementById('search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    [...tbody.rows].forEach(r => {
+      r.style.display = r.cells[0].textContent.toLowerCase().includes(q)
+        ? ''
+        : 'none';
+    });
+  });
 }
 
-loadData();
+loadDashboard();
 </script>
 
 </body>
