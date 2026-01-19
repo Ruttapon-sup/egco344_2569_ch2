@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Electricity Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header>
+  <h1>⚡ Electricity Usage Dashboard</h1>
+</header>
+
+<div class="container">
+
+  <!-- Summary Cards -->
+  <div class="cards">
+    <div class="card">
+      <h3>Total Users</h3>
+      <p id="totalUsers">–</p>
+    </div>
+    <div class="card">
+      <h3>Total Consumption (kWh)</h3>
+      <p id="totalKwh">–</p>
+    </div>
+    <div class="card">
+      <h3>Average per User (kWh)</h3>
+      <p id="avgKwh">–</p>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Chart -->
+    <canvas id="usageChart"></canvas>
+
+    <!-- Users Table -->
+    <table>
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Type</th>
+          <th>Region</th>
+        </tr>
+      </thead>
+      <tbody id="usersTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function loadData() {
+  const usageRes = await fetch('electricity_usages_en.json');
+  const usersRes = await fetch('electricity_users_en.json');
+
+  const usageJson = await usageRes.json();
+  const usersJson = await usersRes.json();
+
+  // Your usage file is wrapped in "Sheet1"
+  const usages = usageJson.Sheet1;
+  const users = usersJson;
+
+  // ===== TOTAL CONSUMPTION =====
+  let totalKwh = 0;
+  usages.forEach(p => {
+    Object.keys(p).forEach(key => {
+      if (key.endsWith('_kwh')) {
+        totalKwh += Number(p[key] || 0);
+      }
+    });
+  });
+
+  // ===== TOTAL USERS =====
+  let totalUsers = 0;
+  users.forEach(p => {
+    Object.keys(p).forEach(key => {
+      if (key.endsWith('_count')) {
+        totalUsers += Number(p[key] || 0);
+      }
+    });
+  });
+
+  const avgKwh = totalUsers ? (totalKwh / totalUsers).toFixed(2) : 0;
+
+  document.getElementById('totalUsers').textContent =
+    totalUsers.toLocaleString();
+
+  document.getElementById('totalKwh').textContent =
+    totalKwh.toLocaleString();
+
+  document.getElementById('avgKwh').textContent =
+    avgKwh;
+
+  // ===== TABLE (Province summary) =====
+  const table = document.getElementById('usersTable');
+  table.innerHTML = '';
+
+  users.slice(0, 10).forEach(p => {
+    const provinceTotalUsers = Object.keys(p)
+      .filter(k => k.endsWith('_count'))
+      .reduce((sum, k) => sum + Number(p[k] || 0), 0);
+
+    table.innerHTML += `
+      <tr>
+        <td>${p.province_name}</td>
+        <td>Total Users</td>
+        <td>${provinceTotalUsers.toLocaleString()}</td>
+      </tr>
+    `;
+  });
+
+  // ===== CHART (kWh by Province) =====
+  const labels = usages.map(p => p.province_name);
+  const data = usages.map(p =>
+    Object.keys(p)
+      .filter(k => k.endsWith('_kwh'))
+      .reduce((sum, k) => sum + Number(p[k] || 0), 0)
+  );
+
+  new Chart(document.getElementById('usageChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Total kWh',
+        data
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false }
+      }
+    }
+  });
+}
+
+loadData();
+</script>
+
+</body>
+</html>
